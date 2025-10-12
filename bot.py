@@ -200,6 +200,7 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     user = update.effective_user
     course = context.user_data.get('selected_course', {'name': 'Not specified'})
     
+    # Using Markdown for nice formatting
     forward_text = (
         f"📩 New message from user: {user.first_name} {user.last_name or ''} (ID: `{user.id}`)\n"
         f"Regarding course: **{course['name']}**\n\n"
@@ -220,6 +221,7 @@ async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFA
     user = update.effective_user
     course = context.user_data.get('selected_course', {'name': 'Not specified'})
 
+    # Using Markdown for nice formatting
     caption = (
         f"📸 New payment screenshot from: {user.first_name} {user.last_name or ''} (ID: `{user.id}`)\n"
         f"For course: **{course['name']}**\n\n"
@@ -237,7 +239,7 @@ async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFA
     return await main_menu_from_message(update, context)
 
 async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles admin's reply to a forwarded message. More robustly."""
+    """Handles admin's reply to a forwarded message."""
     if update.effective_user.id != ADMIN_ID:
         return
 
@@ -248,9 +250,14 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
     original_msg_text = msg.reply_to_message.text or msg.reply_to_message.caption
     
-    if original_msg_text and "(ID: `" in original_msg_text:
+    # --- THIS IS THE CORRECTED PART ---
+    # We now search for "(ID: " without the backtick, making it robust to formatting.
+    if original_msg_text and "(ID: " in original_msg_text:
         try:
-            user_id_str = original_msg_text.split("(ID: `")[1].split("`)")[0]
+            # We split by "(ID: " and then by the closing parenthesis ")".
+            user_id_str = original_msg_text.split("(ID: ")[1].split(")")[0]
+            # Remove the backtick if it's still there, just in case.
+            user_id_str = user_id_str.replace('`', '')
             user_id = int(user_id_str)
             
             await context.bot.send_message(chat_id=user_id, text=f"Admin replied:\n\n{msg.text}")
@@ -260,6 +267,7 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.error(f"Could not parse user ID from reply despite keyword match: {e}")
             await msg.reply_text("❌ Error: Could not extract a valid user ID from the message. Please reply to the original forwarded message.")
     else:
+        logger.info(f"DEBUG: Admin replied to a message without a user ID. Message content: '{original_msg_text}'")
         await msg.reply_text("❌ Action failed. Make sure you are replying directly to the message containing the user's ID, not another message.")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
