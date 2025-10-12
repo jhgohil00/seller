@@ -21,7 +21,6 @@ def run_web_server():
     httpd.serve_forever()
 
 # --- Configuration ---
-# These will be loaded from Render's environment variables for security.
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 RAZORPAY_LINK = "https://razorpay.me/@gateprep?amount=CVDUr6Uxp2FOGZGwAHntNg%3D%3D"
@@ -64,6 +63,29 @@ By purchasing, you will get full access to our private channel which includes:
 Please proceed with the payment. If you have already paid, share the screenshot with us.
 """
 
+# --- NEW: Help Command Text ---
+HELP_TEXT = """
+👋 **Bot Help Guide**
+
+Here's how to use me:
+
+1️⃣ **Browse Courses**
+- Use the buttons on the main menu to see details about each course, including features and price.
+
+2️⃣ **Talk to the Admin**
+- Select a course, then click **"💬 Talk to Admin"**.
+- Type your message and send it. It will be delivered to the admin.
+- When the admin replies, their message will be sent to you here. You can reply directly to their message to continue the conversation.
+
+3️⃣ **Buy a Course**
+- After selecting a course, click **"🛒 Buy Full Course"**.
+- Click the **"💳 Pay ₹XX Now"** button to go to the payment page.
+- After paying, click **"✅ Already Paid? Share Screenshot"** and send a screenshot of your successful payment.
+- The admin will verify it and send you the private channel link.
+
+If you have any issues, feel free to use the "Talk to Admin" feature.
+"""
+
 # --- Logging Setup ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -89,26 +111,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     user_id = user.id
     save_user_id(user_id)
-    
     logger.info(f"User {user.first_name} ({user_id}) started the bot.")
-
-    keyboard = []
-    for key, course in COURSES.items():
-        button_text = f"{course['name']} - ₹{course['price']}"
-        if course['status'] == 'coming_soon':
-            button_text += " (Coming Soon)"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=key)])
-
+    keyboard = [
+        [InlineKeyboardButton(f"{course['name']} - ₹{course['price']}{' (Coming Soon)' if course['status'] == 'coming_soon' else ''}", callback_data=key)]
+        for key, course in COURSES.items()
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"👋 Welcome, {user.first_name}!\n\n"
-        "I am your assistant for Mechanical Engineering courses. Please select a course to view details:",
+        f"👋 Welcome, {user.first_name}!\n\nI am your assistant for Mechanical Engineering courses. Please select a course to view details or use /help for instructions.",
         reply_markup=reply_markup
     )
     return SELECTING_ACTION
 
+# --- NEW: /help command handler ---
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Displays the help message."""
+    await update.message.reply_text(HELP_TEXT, parse_mode='Markdown')
+
 async def course_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles button clicks for course selection."""
     query = update.callback_query
     await query.answer()
     course_key = query.data
@@ -129,26 +149,17 @@ async def course_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             [InlineKeyboardButton("⬅️ Back to Courses", callback_data="main_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            text=COURSE_DETAILS_TEXT.format(course_name=course['name']),
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        course_details = COURSE_DETAILS_TEXT.format(course_name=course['name'])
+        await query.edit_message_text(text=course_details, reply_markup=reply_markup, parse_mode='Markdown')
     return SELECTING_ACTION
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Returns the user to the main course selection menu."""
     query = update.callback_query
     await query.answer()
-    
-    keyboard = []
-    for key, course in COURSES.items():
-        button_text = f"{course['name']} - ₹{course['price']}"
-        if course['status'] == 'coming_soon':
-            button_text += " (Coming Soon)"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=key)])
-        
+    keyboard = [
+        [InlineKeyboardButton(f"{course['name']} - ₹{course['price']}{' (Coming Soon)' if course['status'] == 'coming_soon' else ''}", callback_data=key)]
+        for key, course in COURSES.items()
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         text="Please select a course to view details:",
@@ -157,7 +168,6 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return SELECTING_ACTION
 
 async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles actions like 'Talk to Admin' or 'Buy Course'."""
     query = update.callback_query
     await query.answer()
     action = query.data
@@ -179,10 +189,8 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             [InlineKeyboardButton("⬅️ Back", callback_data=course_key_from_name(course['name']))]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            text=BUY_COURSE_TEXT.format(course_name=course['name'], price=course['price']),
-            reply_markup=reply_markup
-        )
+        buy_text = BUY_COURSE_TEXT.format(course_name=course['name'], price=course['price'])
+        await query.edit_message_text(text=buy_text, reply_markup=reply_markup)
         return SELECTING_ACTION
 
     elif action == "share_screenshot":
@@ -196,79 +204,67 @@ def course_key_from_name(course_name):
     return "main_menu"
 
 async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Forwards user message to admin."""
+    """Forwards user's first message to admin."""
     user = update.effective_user
     course = context.user_data.get('selected_course', {'name': 'Not specified'})
-    
-    # Using Markdown for nice formatting
     forward_text = (
         f"📩 New message from user: {user.first_name} {user.last_name or ''} (ID: `{user.id}`)\n"
         f"Regarding course: **{course['name']}**\n\n"
         f"**Message:**\n{update.message.text}"
     )
-    
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=forward_text,
-        parse_mode='Markdown'
-    )
-    
+    await context.bot.send_message(chat_id=ADMIN_ID, text=forward_text, parse_mode='Markdown')
     await update.message.reply_text("✅ Your message has been sent to the admin. They will reply to you here shortly.")
     return await main_menu_from_message(update, context)
 
 async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Forwards user screenshot to admin."""
     user = update.effective_user
     course = context.user_data.get('selected_course', {'name': 'Not specified'})
-
-    # Using Markdown for nice formatting
     caption = (
         f"📸 New payment screenshot from: {user.first_name} {user.last_name or ''} (ID: `{user.id}`)\n"
         f"For course: **{course['name']}**\n\n"
         f"Reply to this message to send the course link to the user."
     )
-    
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=update.message.photo[-1].file_id,
-        caption=caption,
-        parse_mode='Markdown'
-    )
-    
+    await context.bot.send_photo(chat_id=ADMIN_ID, photo=update.message.photo[-1].file_id, caption=caption, parse_mode='Markdown')
     await update.message.reply_text("✅ Screenshot received! The admin will verify it and send you the course access link here soon.")
     return await main_menu_from_message(update, context)
 
+# --- MODIFIED: Admin's reply function ---
 async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles admin's reply to a forwarded message."""
     if update.effective_user.id != ADMIN_ID:
         return
-
     msg = update.effective_message
     if not msg.reply_to_message:
         await msg.reply_text("Please use the 'reply' feature on a forwarded user message.")
         return
-        
     original_msg_text = msg.reply_to_message.text or msg.reply_to_message.caption
     
-    # --- THIS IS THE CORRECTED PART ---
-    # We now search for "(ID: " without the backtick, making it robust to formatting.
     if original_msg_text and "(ID: " in original_msg_text:
         try:
-            # We split by "(ID: " and then by the closing parenthesis ")".
-            user_id_str = original_msg_text.split("(ID: ")[1].split(")")[0]
-            # Remove the backtick if it's still there, just in case.
-            user_id_str = user_id_str.replace('`', '')
+            user_id_str = original_msg_text.split("(ID: ")[1].split(")")[0].replace('`', '')
             user_id = int(user_id_str)
-            
-            await context.bot.send_message(chat_id=user_id, text=f"Admin replied:\n\n{msg.text}")
+            # Add footer to enable continuous conversation
+            reply_text = f"Admin replied:\n\n{msg.text}\n\n---\n*You can reply to this message to continue the conversation.*"
+            await context.bot.send_message(chat_id=user_id, text=reply_text, parse_mode='Markdown')
             await msg.reply_text("✅ Reply sent successfully.")
-            
         except (IndexError, ValueError) as e:
             logger.error(f"Could not parse user ID from reply despite keyword match: {e}")
-            await msg.reply_text("❌ Error: Could not extract a valid user ID from the message. Please reply to the original forwarded message.")
+            await msg.reply_text("❌ Error: Could not extract a valid user ID.")
     else:
-        logger.info(f"DEBUG: Admin replied to a message without a user ID. Message content: '{original_msg_text}'")
-        await msg.reply_text("❌ Action failed. Make sure you are replying directly to the message containing the user's ID, not another message.")
+        await msg.reply_text("❌ Action failed. Make sure you are replying to the original forwarded message from a user.")
+
+# --- NEW: Handles user's follow-up replies ---
+async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles a user's reply to a message from the admin."""
+    user = update.effective_user
+    replied_message = update.message.reply_to_message
+
+    # Check if the user is replying to one of the bot's messages that came from the admin
+    if replied_message and replied_message.from_user.is_bot and "Admin replied:" in replied_message.text:
+        logger.info(f"Forwarding follow-up reply from user {user.id} to admin.")
+        forward_text = f"↪️ Follow-up message from {user.first_name} (ID: `{user.id}`):\n\n{update.message.text}"
+        await context.bot.send_message(chat_id=ADMIN_ID, text=forward_text, parse_mode='Markdown')
+        await update.message.reply_text("✅ Your reply has been sent to the admin.")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to broadcast a message to all users."""
@@ -314,9 +310,7 @@ async def main_menu_from_message(update: Update, context: ContextTypes.DEFAULT_T
     """A helper to show main menu after a user sends a text/photo message."""
     keyboard = []
     for key, course in COURSES.items():
-        button_text = f"{course['name']} - ₹{course['price']}"
-        if course['status'] == 'coming_soon':
-            button_text += " (Coming Soon)"
+        button_text = f"{course['name']} - ₹{course['price']}{' (Coming Soon)' if course['status'] == 'coming_soon' else ''}"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=key)])
         
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -332,12 +326,12 @@ def main() -> None:
         logger.error("FATAL: BOT_TOKEN or ADMIN_ID environment variables not set.")
         return
 
-    # --- Start web server in a background thread ---
+    # Start web server in a background thread
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
 
-    # --- Start the Telegram bot ---
+    # Start the Telegram bot
     application = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
@@ -355,7 +349,11 @@ def main() -> None:
     )
 
     application.add_handler(conv_handler)
+    
+    # --- ADDED/MODIFIED HANDLERS ---
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.REPLY & filters.User(user_id=ADMIN_ID), reply_to_user))
+    application.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, handle_user_reply)) # Handles user follow-ups
     application.add_handler(CommandHandler("broadcast", broadcast))
     application.add_error_handler(error_handler)
 
