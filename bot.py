@@ -159,8 +159,6 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return FORWARD_TO_ADMIN
     
     elif action == "buy_course":
-        # Note: You can customize the Razorpay link per course if needed
-        # For now, using one main link.
         payment_link = RAZORPAY_LINK 
         keyboard = [
             [InlineKeyboardButton(f"💳 Pay ₹{course['price']} Now", url=payment_link)],
@@ -196,7 +194,6 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"**Message:**\n{update.message.text}"
     )
     
-    # We forward the text with user ID so admin can reply
     await context.bot.send_message(
         chat_id=ADMIN_ID,
         text=forward_text,
@@ -204,7 +201,6 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
     
     await update.message.reply_text("✅ Your message has been sent to the admin. They will reply to you here shortly.")
-    # Return to main menu after sending message
     return await main_menu_from_message(update, context)
 
 async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -229,13 +225,19 @@ async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFA
     return await main_menu_from_message(update, context)
 
 async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles admin's reply to a forwarded message."""
+    """Handles admin's reply to a forwarded message. More robustly."""
     if update.effective_user.id != ADMIN_ID:
         return
 
     msg = update.effective_message
-    if msg.reply_to_message:
-        original_msg_text = msg.reply_to_message.text or msg.reply_to_message.caption
+    if not msg.reply_to_message:
+        await msg.reply_text("Please use the 'reply' feature on a forwarded user message.")
+        return
+        
+    original_msg_text = msg.reply_to_message.text or msg.reply_to_message.caption
+    
+    # Check if the text we are replying to actually contains a user ID
+    if original_msg_text and "(ID: `" in original_msg_text:
         try:
             # Extract user ID from the forwarded message
             user_id_str = original_msg_text.split("(ID: `")[1].split("`)")[0]
@@ -246,8 +248,11 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await msg.reply_text("✅ Reply sent successfully.")
             
         except (IndexError, ValueError) as e:
-            logger.error(f"Could not parse user ID from reply: {e}")
-            await msg.reply_text("❌ Could not send reply. Make sure you are replying directly to the forwarded message.")
+            logger.error(f"Could not parse user ID from reply despite keyword match: {e}")
+            await msg.reply_text("❌ Error: Could not extract a valid user ID from the message. Please reply to the original forwarded message.")
+    else:
+        # This is the most common error case: admin replied to the wrong message
+        await msg.reply_text("❌ Action failed. Make sure you are replying directly to the message containing the user's ID, not another message.")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to broadcast a message to all users."""
