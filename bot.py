@@ -1,13 +1,30 @@
 import os
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+
+# --- Web Server to satisfy Render's health checks ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    server_address = ('', port)
+    httpd = HTTPServer(server_address, HealthCheckHandler)
+    logger.info(f"Starting simple web server for health checks on port {port}")
+    httpd.serve_forever()
 
 # --- Configuration ---
 # These will be loaded from Render's environment variables for security.
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
-RAZORPAY_LINK = "https://razorpay.me/@gateprep?amount=CVDUr6Uxp2FOGZGwAHntNg%3D%3D" # Your main link, prices will be customized later
+RAZORPAY_LINK = "https://razorpay.me/@gateprep?amount=CVDUr6Uxp2FOGZGwAHntNg%3D%3D"
 USER_DATA_FILE = "user_ids.txt"
 
 # --- Bot Texts & Data ---
@@ -48,7 +65,6 @@ Please proceed with the payment. If you have already paid, share the screenshot 
 """
 
 # --- Logging Setup ---
-# This helps in debugging issues. Logs will appear in Render.
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -64,7 +80,6 @@ def save_user_id(user_id):
             f.write(str(user_id) + "\n")
 
 # --- Conversation States ---
-# These help the bot know what to expect next from a user
 SELECTING_ACTION, FORWARD_TO_ADMIN, FORWARD_SCREENSHOT = range(3)
 
 # --- Command and Message Handlers ---
@@ -73,7 +88,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles the /start command."""
     user = update.effective_user
     user_id = user.id
-    save_user_id(user_id) # Save user ID for broadcasting
+    save_user_id(user_id)
     
     logger.info(f"User {user.first_name} ({user_id}) started the bot.")
 
@@ -100,14 +115,12 @@ async def course_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if course_key in COURSES:
         course = COURSES[course_key]
-        context.user_data['selected_course'] = course # Store the selected course
+        context.user_data['selected_course'] = course
 
         if course['status'] == 'coming_soon':
-            await query.edit_message_text(text=f"**{course['name']}** is launching soon! Stay tuned for updates.")
-            # Show a back button
             keyboard = [[InlineKeyboardButton("⬅️ Back to Courses", callback_data="main_menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(text=f"**{course['name']}** is launching soon! Stay tuned for updates.", reply_markup=reply_markup)
+            await query.edit_message_text(text=f"**{course['name']}** is launching soon! Stay tuned for updates.", reply_markup=reply_markup, parse_mode='Markdown')
             return SELECTING_ACTION
 
         keyboard = [
@@ -177,11 +190,10 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return FORWARD_SCREENSHOT
 
 def course_key_from_name(course_name):
-    """Helper to get course key from its name for the 'Back' button."""
     for key, course in COURSES.items():
         if course['name'] == course_name:
             return key
-    return "main_menu" # fallback
+    return "main_menu"
 
 async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Forwards user message to admin."""
@@ -236,14 +248,11 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
     original_msg_text = msg.reply_to_message.text or msg.reply_to_message.caption
     
-    # Check if the text we are replying to actually contains a user ID
     if original_msg_text and "(ID: `" in original_msg_text:
         try:
-            # Extract user ID from the forwarded message
             user_id_str = original_msg_text.split("(ID: `")[1].split("`)")[0]
             user_id = int(user_id_str)
             
-            # Send the admin's reply to the user
             await context.bot.send_message(chat_id=user_id, text=f"Admin replied:\n\n{msg.text}")
             await msg.reply_text("✅ Reply sent successfully.")
             
@@ -251,7 +260,6 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.error(f"Could not parse user ID from reply despite keyword match: {e}")
             await msg.reply_text("❌ Error: Could not extract a valid user ID from the message. Please reply to the original forwarded message.")
     else:
-        # This is the most common error case: admin replied to the wrong message
         await msg.reply_text("❌ Action failed. Make sure you are replying directly to the message containing the user's ID, not another message.")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -284,14 +292,15 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             
     await update.message.reply_text(f"📢 Broadcast finished.\nSent: {sent_count}\nFailed: {failed_count}")
 
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log Errors and send a message to the admin."""
     logger.error("Exception while handling an update:", exc_info=context.error)
     
-    # Notify admin about the error
     error_message = f"🚨 Bot Error Alert 🚨\n\nAn error occurred: {context.error}"
-    await context.bot.send_message(chat_id=ADMIN_ID, text=error_message)
+    try:
+        await context.bot.send_message(chat_id=ADMIN_ID, text=error_message)
+    except Exception as e:
+        logger.error(f"Failed to send error alert to admin: {e}")
 
 async def main_menu_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """A helper to show main menu after a user sends a text/photo message."""
@@ -310,14 +319,19 @@ async def main_menu_from_message(update: Update, context: ContextTypes.DEFAULT_T
     return SELECTING_ACTION
 
 def main() -> None:
-    """Start the bot."""
+    """Start the bot and the web server."""
     if not BOT_TOKEN or not ADMIN_ID:
         logger.error("FATAL: BOT_TOKEN or ADMIN_ID environment variables not set.")
         return
 
+    # --- Start web server in a background thread ---
+    web_thread = threading.Thread(target=run_web_server)
+    web_thread.daemon = True
+    web_thread.start()
+
+    # --- Start the Telegram bot ---
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Conversation handler to manage the flow
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -333,17 +347,11 @@ def main() -> None:
     )
 
     application.add_handler(conv_handler)
-    
-    # Handler for admin replies
     application.add_handler(MessageHandler(filters.REPLY & filters.User(user_id=ADMIN_ID), reply_to_user))
-    
-    # Handler for broadcast command
     application.add_handler(CommandHandler("broadcast", broadcast))
-
-    # Error handler
     application.add_error_handler(error_handler)
 
-    # Start the Bot
+    logger.info("Starting Telegram bot polling...")
     application.run_polling()
 
 if __name__ == "__main__":
