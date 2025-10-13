@@ -1,0 +1,27 @@
+{
+    "me_je": {
+        "name": "RRB-SSC JE [Made Easy]",
+        "price": 99,
+        "status": "available"
+    },
+    "me_gate": {
+        "name": "GATE-ESE [Made Easy]",
+        "price": 99,
+        "status": "available"
+    },
+    "me_rank": {
+        "name": "Rank Improvement Course [Made Easy]",
+        "price": 99,
+        "status": "available"
+    },
+    "pw_je": {
+        "name": "RRB-SSC JE [PW]",
+        "price": 49,
+        "status": "coming_soon"
+    },
+    "pw_gate": {
+        "name": "GATE-ESE [PW]",
+        "price": 49,
+        "status": "available"
+    }
+}
