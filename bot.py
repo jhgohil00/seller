@@ -4,10 +4,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-import json
-import re
-from telegram.constants import ParseMode # Import ParseMode
-from telegram.helpers import escape_markdown # Import the escape helper
+import json # Import json module
+import re   # Import re for regex parsing of admin commands
 
 # --- Web Server to satisfy Render's health checks ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -29,8 +27,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 RAZORPAY_LINK = "https://razorpay.me/@gateprep?amount=CVDUr6Uxp2FOGZGwAHntNg%3D%3D"
 USER_DATA_FILE = "user_ids.txt"
-COURSES_FILE = "courses.json"
-STATS_FILE = "bot_stats.json"
+COURSES_FILE = "courses.json" # File to store course data
+STATS_FILE = "bot_stats.json" # New: File to store bot statistics
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -61,19 +59,16 @@ def save_json_data(filename, data):
 GLOBAL_COURSES = load_json_data(COURSES_FILE, {})
 BOT_STATS = load_json_data(STATS_FILE, {"total_users": 0, "course_views": {}})
 
+# Helper for user IDs (still separate, could be merged into stats.json if preferred)
 def save_user_id(user_id):
     """Saves a new user's ID for broadcasting, avoids duplicates and updates stats."""
-    try:
-        with open(USER_DATA_FILE, "r") as f:
-            user_ids = f.read().splitlines()
-    except FileNotFoundError:
-        user_ids = []
-
-    if str(user_id) not in user_ids:
-        with open(USER_DATA_FILE, "a") as f:
+    with open(USER_DATA_FILE, "a+") as f:
+        f.seek(0)
+        user_ids = f.read().splitlines()
+        if str(user_id) not in user_ids:
             f.write(str(user_id) + "\n")
-        BOT_STATS["total_users"] = len(user_ids) + 1
-        save_json_data(STATS_FILE, BOT_STATS)
+            BOT_STATS["total_users"] = len(user_ids) + 1 # Update count
+            save_json_data(STATS_FILE, BOT_STATS) # Save stats
 
 # --- Bot Texts & Data ---
 COURSE_DETAILS_TEXT = """
@@ -153,7 +148,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles the /start command."""
     user = update.effective_user
     user_id = user.id
-    save_user_id(user_id)
+    save_user_id(user_id) # This now updates BOT_STATS["total_users"]
     logger.info(f"User {user.first_name} ({user_id}) started the bot.")
     
     keyboard = []
@@ -178,14 +173,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Displays the admin panel for authorized users."""
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
         return
     await update.message.reply_text(ADMIN_HELP_TEXT, parse_mode='Markdown')
 
 async def list_courses(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lists all courses for the admin."""
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
         return
     
+    # Reload courses to get latest changes if any were made manually or by another admin action
     global GLOBAL_COURSES
     GLOBAL_COURSES = load_json_data(COURSES_FILE, {})
 
@@ -207,6 +205,7 @@ async def list_courses(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to add a new course."""
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
         return
 
     args_str = " ".join(context.args)
@@ -225,14 +224,18 @@ async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     try:
         price = int(price_str)
-        if price < 0: raise ValueError
+        if price < 0:
+            raise ValueError
     except ValueError:
         await update.message.reply_text("❌ Invalid price. Please enter a positive number.", parse_mode='Markdown')
         return
     
+    # Generate a simple key from the name (e.g., "New Physics Course" -> "new_physics_course")
     key = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
-    if not key: key = f"course_{len(GLOBAL_COURSES) + 1}"
+    if not key: # Fallback for very short names or special chars only
+        key = f"course_{len(GLOBAL_COURSES) + 1}"
 
+    # Ensure key is unique
     original_key = key
     counter = 1
     while key in GLOBAL_COURSES:
@@ -246,6 +249,7 @@ async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def edit_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to edit an existing course."""
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
         return
 
     args_str = " ".join(context.args)
@@ -266,18 +270,22 @@ async def edit_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     try:
         new_price = int(new_price_str)
-        if new_price < 0: raise ValueError
+        if new_price < 0:
+            raise ValueError
     except ValueError:
         await update.message.reply_text("❌ Invalid price. Please enter a positive number.", parse_mode='Markdown')
         return
     
-    GLOBAL_COURSES[course_key].update({"name": new_name, "price": new_price, "status": new_status})
+    GLOBAL_COURSES[course_key]['name'] = new_name
+    GLOBAL_COURSES[course_key]['price'] = new_price
+    GLOBAL_COURSES[course_key]['status'] = new_status
     save_json_data(COURSES_FILE, GLOBAL_COURSES)
     await update.message.reply_text(f"✅ Course `{course_key}` updated successfully.", parse_mode='Markdown')
 
 async def delete_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to delete a course."""
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
         return
 
     if len(context.args) != 1:
@@ -294,30 +302,28 @@ async def delete_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     save_json_data(COURSES_FILE, GLOBAL_COURSES)
     await update.message.reply_text(f"✅ Course `{course_key}` deleted successfully.", parse_mode='Markdown')
 
-# --- MODIFIED: Stats command with formatting fix ---
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to show bot statistics."""
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
         return
 
     global BOT_STATS
-    BOT_STATS = load_json_data(STATS_FILE, {"total_users": 0, "course_views": {}})
-    
-    # Using MarkdownV2 syntax
-    stats_text = "📊 *Bot Statistics*\n\n"
-    stats_text += f"*Total Users:* `{BOT_STATS.get('total_users', 0)}`\n"
-    stats_text += "\n*Course Views:*\n"
+    BOT_STATS = load_json_data(STATS_FILE, {"total_users": 0, "course_views": {}}) # Reload to get latest
+
+    stats_text = "📊 **Bot Statistics**\n\n"
+    stats_text += f"**Total Users:** `{BOT_STATS.get('total_users', 0)}`\n"
+    stats_text += "\n**Course Views:**\n"
     if not BOT_STATS.get('course_views'):
-        stats_text += "  _No course views yet_\n"
+        stats_text += "  _No course views yet._\n"
     else:
+        # Sort by views, descending
         sorted_views = sorted(BOT_STATS['course_views'].items(), key=lambda item: item[1], reverse=True)
         for course_key, views in sorted_views:
             course_name = GLOBAL_COURSES.get(course_key, {}).get('name', f'Unknown Course ({course_key})')
-            # Escape the course name to handle special characters like [ ] ( ) - etc.
-            escaped_name = escape_markdown(course_name, version=2)
-            stats_text += f"  \\- {escaped_name}: `{views}` views\n"
+            stats_text += f"  - {course_name}: `{views}` views\n"
             
-    await update.message.reply_text(stats_text, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(stats_text, parse_mode='Markdown')
 
 
 async def course_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -330,9 +336,11 @@ async def course_selection_callback(update: Update, context: ContextTypes.DEFAUL
         course = GLOBAL_COURSES[course_key]
         context.user_data['selected_course'] = course
 
+        # --- Track Course Views ---
         global BOT_STATS
         BOT_STATS['course_views'][course_key] = BOT_STATS['course_views'].get(course_key, 0) + 1
         save_json_data(STATS_FILE, BOT_STATS)
+        # --- End Track Course Views ---
 
         if course['status'] == 'coming_soon':
             keyboard = [[InlineKeyboardButton("⬅️ Back to Courses", callback_data="main_menu")]]
@@ -352,6 +360,7 @@ async def course_selection_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(text=course_details, reply_markup=reply_markup, parse_mode='Markdown')
     return SELECTING_ACTION
 
+
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -368,6 +377,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup=reply_markup
     )
     return SELECTING_ACTION
+
 
 async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -403,9 +413,10 @@ def course_key_from_name(course_name):
     for key, course in GLOBAL_COURSES.items():
         if course['name'] == course_name:
             return key
-    return "main_menu"
+    return "main_menu" # Fallback if name not found
 
 async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Forwards user's first message to admin."""
     user = update.effective_user
     course = context.user_data.get('selected_course', {'name': 'Not specified'})
     forward_text = (
@@ -430,7 +441,9 @@ async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFA
     return await main_menu_from_message(update, context)
 
 async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_ID: return
+    """Handles admin's reply to a forwarded message."""
+    if update.effective_user.id != ADMIN_ID:
+        return
     msg = update.effective_message
     if not msg.reply_to_message:
         await msg.reply_text("Please use the 'reply' feature on a forwarded user message.")
@@ -451,6 +464,7 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await msg.reply_text("❌ Action failed. Make sure you are replying to the original forwarded message from a user.")
 
 async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles a user's reply to a message from the admin."""
     user = update.effective_user
     replied_message = update.message.reply_to_message
 
@@ -461,17 +475,25 @@ async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("✅ Your reply has been sent to the admin.")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_ID: return
+    """Admin command to broadcast a message to all users."""
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+
     message_to_broadcast = " ".join(context.args)
     if not message_to_broadcast:
         await update.message.reply_text("Usage: `/broadcast <your message>`", parse_mode='Markdown')
         return
+        
     try:
-        with open(USER_DATA_FILE, "r") as f: user_ids = f.read().splitlines()
+        with open(USER_DATA_FILE, "r") as f:
+            user_ids = f.read().splitlines()
     except FileNotFoundError:
         await update.message.reply_text("User data file not found. No users to broadcast to.")
         return
-    sent_count, failed_count = 0, 0
+
+    sent_count = 0
+    failed_count = 0
     for user_id in user_ids:
         try:
             await context.bot.send_message(chat_id=int(user_id), text=message_to_broadcast)
@@ -479,42 +501,54 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as e:
             failed_count += 1
             logger.error(f"Failed to send broadcast to {user_id}: {e}")
+            
     await update.message.reply_text(f"📢 Broadcast finished.\nSent: {sent_count}\nFailed: {failed_count}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log Errors and send a message to the admin."""
     logger.error("Exception while handling an update:", exc_info=context.error)
+    
     error_message = f"🚨 Bot Error Alert 🚨\n\nAn error occurred: {context.error}"
     try:
-        if "Can't parse entities" not in str(context.error): # Avoid sending alerts for this specific, known error
-            await context.bot.send_message(chat_id=ADMIN_ID, text=error_message)
+        await context.bot.send_message(chat_id=ADMIN_ID, text=error_message)
     except Exception as e:
         logger.error(f"Failed to send error alert to admin: {e}")
 
 async def main_menu_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """A helper to show main menu after a user sends a text/photo message."""
     keyboard = []
     for key, course in GLOBAL_COURSES.items():
-        button_text = f"{course['name']} - ₹{course['price']}{' (Coming Soon)' if course['status'] == 'coming_soon' else ''}"
+        button_text = f"{course['name']} - ₹{course['price']}"
+        if course['status'] == 'coming_soon':
+            button_text += " (Coming Soon)"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=key)])
+        
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("You can select another course:", reply_markup=reply_markup)
+    await update.message.reply_text(
+        "You can select another course:",
+        reply_markup=reply_markup
+    )
     return SELECTING_ACTION
 
 def main() -> None:
+    """Start the bot and the web server."""
     if not BOT_TOKEN or not ADMIN_ID:
         logger.error("FATAL: BOT_TOKEN or ADMIN_ID environment variables not set.")
         return
 
+    # Start web server in a background thread
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
 
+    # Start the Telegram bot
     application = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
             SELECTING_ACTION: [
-                CallbackQueryHandler(course_selection_callback, pattern=r"^[a-zA-Z0-9_]+$"), # More generic pattern
+                CallbackQueryHandler(course_selection_callback, pattern="^me_.*|^pw_.*"), # Use updated callback
                 CallbackQueryHandler(handle_action, pattern="^talk_admin$|^buy_course$|^share_screenshot$"),
                 CallbackQueryHandler(main_menu, pattern="^main_menu$"),
             ],
@@ -526,21 +560,17 @@ def main() -> None:
 
     application.add_handler(conv_handler)
     
-    # Admin and general command handlers
-    admin_filter = filters.User(user_id=ADMIN_ID)
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("admin", admin_panel, filters=admin_filter))
-    application.add_handler(CommandHandler("listcourses", list_courses, filters=admin_filter))
-    application.add_handler(CommandHandler("addcourse", add_course, filters=admin_filter))
-    application.add_handler(CommandHandler("editcourse", edit_course, filters=admin_filter))
-    application.add_handler(CommandHandler("delcourse", delete_course, filters=admin_filter))
-    application.add_handler(CommandHandler("stats", show_stats, filters=admin_filter))
-    application.add_handler(CommandHandler("broadcast", broadcast, filters=admin_filter))
+    application.add_handler(CommandHandler("admin", admin_panel, filters=filters.User(ADMIN_ID)))
+    application.add_handler(CommandHandler("listcourses", list_courses, filters=filters.User(ADMIN_ID)))
+    application.add_handler(CommandHandler("addcourse", add_course, filters=filters.User(ADMIN_ID)))
+    application.add_handler(CommandHandler("editcourse", edit_course, filters=filters.User(ADMIN_ID)))
+    application.add_handler(CommandHandler("delcourse", delete_course, filters=filters.User(ADMIN_ID)))
+    application.add_handler(CommandHandler("stats", show_stats, filters=filters.User(ADMIN_ID))) # New stats command
 
-    # Reply handlers
-    application.add_handler(MessageHandler(filters.REPLY & admin_filter, reply_to_user))
-    application.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND & ~admin_filter, handle_user_reply))
-    
+    application.add_handler(MessageHandler(filters.REPLY & filters.User(user_id=ADMIN_ID), reply_to_user))
+    application.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, handle_user_reply))
+    application.add_handler(CommandHandler("broadcast", broadcast))
     application.add_error_handler(error_handler)
 
     logger.info("Starting Telegram bot polling...")
