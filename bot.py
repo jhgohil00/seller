@@ -584,14 +584,16 @@ def main() -> None:
     # Start the Telegram bot
     application = Application.builder().token(BOT_TOKEN).build()
 
-    conv_handler = ConversationHandler(
+conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
             SELECTING_ACTION: [
-                # Updated pattern to be more robust for any course key
-                CallbackQueryHandler(course_selection_callback, pattern="^[^_].*$"), # Matches any callback that doesn't start with _
+                # Specific actions must come FIRST
                 CallbackQueryHandler(handle_action, pattern="^talk_admin$|^buy_course$|^share_screenshot$"),
                 CallbackQueryHandler(main_menu, pattern="^main_menu$"),
+                
+                # The general "course key" pattern must come LAST
+                CallbackQueryHandler(course_selection_callback, pattern="^[^_].*$"), # Matches any callback that doesn't start with _
             ],
             FORWARD_TO_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_to_admin)],
             FORWARD_SCREENSHOT: [MessageHandler(filters.PHOTO, forward_screenshot_to_admin)],
