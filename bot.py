@@ -607,8 +607,7 @@ def main() -> None:
     application.add_handler(CommandHandler("addcourse", add_course, filters=filters.User(ADMIN_ID)))
     application.add_handler(CommandHandler("editcourse", edit_course, filters=filters.User(ADMIN_ID)))
     application.add_handler(CommandHandler("delcourse", delete_course, filters=filters.User(ADMIN_ID)))
-    application.add_handler(CommandHandler("stats", show_stats, filters=filters.User(ADMIN_MATCHER_SENSITIVE))) # New stats command
-
+    application.add_handler(CommandHandler("stats", show_stats, filters=filters.User(ADMIN_ID))) # New stats command
     application.add_handler(MessageHandler(filters.REPLY & filters.User(user_id=ADMIN_ID), reply_to_user))
     application.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, handle_user_reply))
     application.add_handler(CommandHandler("broadcast", broadcast))
