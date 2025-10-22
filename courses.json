@@ -1,10 +1,10 @@
 {
-    "me_je": {
+    "me_je_tech": {
         "name": "RRB-SSC JE TECH [Made Easy]",
         "price": 99,
         "status": "available"
     },
-    "me_je": {
+    "me_je_nontech": {
         "name": "RRB-SSC JE NON TECH [Made Easy]",
         "price": 49,
         "status": "available"
