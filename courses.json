@@ -1,7 +1,12 @@
 {
     "me_je": {
-        "name": "RRB-SSC JE [Made Easy]",
+        "name": "RRB-SSC JE TECH [Made Easy]",
         "price": 99,
+        "status": "available"
+    },
+    "me_je": {
+        "name": "RRB-SSC JE NON TECH [Made Easy]",
+        "price": 49,
         "status": "available"
     },
     "me_gate": {
@@ -14,14 +19,14 @@
         "price": 99,
         "status": "available"
     },
-    "pw_je": {
-        "name": "RRB-SSC JE [PW]",
-        "price": 49,
-        "status": "coming_soon"
-    },
     "pw_gate": {
         "name": "GATE-ESE [PW]",
         "price": 49,
         "status": "available"
+    },
+        "pw_je": {
+        "name": "RRB-SSC JE [PW]",
+        "price": 49,
+        "status": "coming_soon"
     }
 }
